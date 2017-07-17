@@ -8,6 +8,75 @@ import (
 	"github.com/influxdata/influxdb/query"
 )
 
+func TestCompile_Success(t *testing.T) {
+	for _, tt := range []string{
+		`SELECT time, value FROM cpu`,
+		`SELECT value FROM cpu`,
+		`SELECT value, host FROM cpu`,
+		`SELECT * FROM cpu`,
+		`SELECT time, * FROM cpu`,
+		`SELECT value, * FROM cpu`,
+		`SELECT max(value) FROM cpu`,
+		`SELECT max(value), host FROM cpu`,
+		`SELECT max(value), * FROM cpu`,
+		`SELECT max(*) FROM cpu`,
+		`SELECT max(/val/) FROM cpu`,
+		`SELECT min(value) FROM cpu`,
+		`SELECT min(value), host FROM cpu`,
+		`SELECT min(value), * FROM cpu`,
+		`SELECT min(*) FROM cpu`,
+		`SELECT min(/val/) FROM cpu`,
+		`SELECT first(value) FROM cpu`,
+		`SELECT first(value), host FROM cpu`,
+		`SELECT first(value), * FROM cpu`,
+		`SELECT first(*) FROM cpu`,
+		`SELECT first(/val/) FROM cpu`,
+		`SELECT last(value) FROM cpu`,
+		`SELECT last(value), host FROM cpu`,
+		`SELECT last(value), * FROM cpu`,
+		`SELECT last(*) FROM cpu`,
+		`SELECT last(/val/) FROM cpu`,
+		`SELECT count(value) FROM cpu`,
+		`SELECT count(distinct(value)) FROM cpu`,
+		`SELECT count(*) FROM cpu`,
+		`SELECT count(/val/) FROM cpu`,
+		`SELECT mean(value) FROM cpu`,
+		`SELECT mean(*) FROM cpu`,
+		`SELECT mean(/val/) FROM cpu`,
+		`SELECT min(value), max(value) FROM cpu`,
+		`SELECT min(*), max(*) FROM cpu`,
+		`SELECT min(/val/), max(/val/) FROM cpu`,
+		`SELECT first(value), last(value) FROM cpu`,
+		`SELECT first(*), last(*) FROM cpu`,
+		`SELECT first(/val/), last(/val/) FROM cpu`,
+		`SELECT count(value) FROM cpu WHERE time >= now() - 1h GROUP BY time(10m)`,
+		`SELECT distinct value FROM cpu`,
+		`SELECT distinct(value) FROM cpu`,
+		`SELECT value / total FROM cpu`,
+		`SELECT min(value) / total FROM cpu`,
+		`SELECT max(value) / total FROM cpu`,
+		`SELECT top(value, 1) FROM cpu`,
+		`SELECT top(value, host, 1) FROM cpu`,
+		`SELECT top(value, 1), host FROM cpu`,
+		`SELECT bottom(value, 1) FROM cpu`,
+		`SELECT bottom(value, host, 1) FROM cpu`,
+		`SELECT bottom(value, 1), host FROM cpu`,
+	} {
+		t.Run(tt, func(t *testing.T) {
+			stmt, err := influxql.ParseStatement(tt)
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			s := stmt.(*influxql.SelectStatement)
+
+			opt := query.CompileOptions{}
+			if _, err := query.Compile(s, opt); err != nil {
+				t.Errorf("unexpected error: %s", err)
+			}
+		})
+	}
+}
+
 func TestCompile_Failures(t *testing.T) {
 	for _, tt := range []struct {
 		name string
