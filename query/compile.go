@@ -292,10 +292,26 @@ func (c *compiledField) compileTopBottom(call *influxql.Call, out *WriteEdge) er
 	if len(call.Args) > 2 {
 		dimensions = make([]influxql.VarRef, 0, len(call.Args))
 		for _, v := range call.Args[1 : len(call.Args)-1] {
-			if ref, ok := v.(*influxql.VarRef); ok {
+			ref, ok := v.(*influxql.VarRef)
+			if ok {
 				dimensions = append(dimensions, *ref)
 			} else {
 				return fmt.Errorf("only fields or tags are allowed in %s(), found %s", call.Name, v)
+			}
+
+			// Add a field for each of the listed dimensions.
+			in, out := NewEdge(nil)
+			field := &compiledField{
+				global: c.global,
+				Field:  &influxql.Field{Expr: ref},
+				Output: out,
+				Symbols: &SymbolTable{
+					Table: make(map[*WriteEdge]Symbol),
+				},
+			}
+			c.global.Fields = append(c.global.Fields, field)
+			if err := field.compileExpr(ref, in); err != nil {
+				return err
 			}
 		}
 	}
@@ -484,10 +500,10 @@ func Compile(stmt *influxql.SelectStatement, opt CompileOptions) (CompiledStatem
 				Table: make(map[*WriteEdge]Symbol),
 			},
 		}
+		c.Fields = append(c.Fields, field)
 		if err := field.compileExpr(f.Expr, in); err != nil {
 			return nil, err
 		}
-		c.Fields = append(c.Fields, field)
 	}
 
 	if err := c.validateFields(); err != nil {
