@@ -532,7 +532,7 @@ func (b *exprIteratorBuilder) buildCallIterator(expr *Call) (Iterator, error) {
 		}
 
 		n := expr.Args[len(expr.Args)-1].(*IntegerLiteral)
-		return newTopIterator(input, opt, int(n.Val), b.writeMode)
+		return NewTopIterator(input, opt, int(n.Val), b.writeMode)
 	case "bottom":
 		if len(expr.Args) < 2 {
 			return nil, fmt.Errorf("bottom() requires 2 or more arguments, got %d", len(expr.Args))
@@ -585,7 +585,7 @@ func (b *exprIteratorBuilder) buildCallIterator(expr *Call) (Iterator, error) {
 		}
 
 		n := expr.Args[len(expr.Args)-1].(*IntegerLiteral)
-		return newBottomIterator(input, b.opt, int(n.Val), b.writeMode)
+		return NewBottomIterator(input, b.opt, int(n.Val), b.writeMode)
 	}
 
 	itr, err := func() (Iterator, error) {

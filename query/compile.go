@@ -23,6 +23,10 @@ type compiledStatement struct {
 	// Dimensions holds the groupings for the statement.
 	Dimensions []string
 
+	// Tags holds all of the necessary tags used in this statement.
+	// These are the tags that will be selected from the storage engine.
+	Tags map[string]struct{}
+
 	// Condition is the condition used for accessing data.
 	Condition influxql.Expr
 
@@ -70,6 +74,7 @@ func newCompiler(stmt *influxql.SelectStatement, opt CompileOptions) *compiledSt
 	return &compiledStatement{
 		OnlySelectors: true,
 		Fields:        make([]*compiledField, 0, len(stmt.Fields)),
+		Tags:          make(map[string]struct{}),
 		Options:       opt,
 	}
 }
@@ -239,6 +244,8 @@ func (c *compiledStatement) linkAuxiliaryFields() {
 			switch source := source.(type) {
 			case *influxql.Measurement:
 				ic := &IteratorCreator{
+					Dimensions:      c.Dimensions,
+					Tags:            c.Tags,
 					TimeRange:       c.TimeRange,
 					AuxiliaryFields: c.AuxiliaryFields,
 					Measurement:     source,
@@ -330,11 +337,43 @@ func (c *compiledField) compileTopBottom(call *influxql.Call, out *WriteEdge) er
 	}
 	c.global.TopBottomFunction = call.Name
 
-	selector := &TopBottomSelector{Dimensions: dimensions, Output: out}
+	selector := &TopBottomSelector{
+		Name:      call.Name,
+		Limit:     int(limit.Val),
+		TimeRange: c.global.TimeRange,
+		Output:    out,
+	}
 	c.global.FunctionCalls = append(c.global.FunctionCalls, out.Output)
 	out.Node = selector
-
 	out, selector.Input = AddEdge(nil, selector)
+
+	// If we are grouping by some dimension, create a min/max call iterator
+	// with those dimensions.
+	if len(dimensions) > 0 {
+		fcall := &FunctionCall{
+			Dimensions: c.global.Dimensions,
+			Interval:   c.global.Interval,
+			TimeRange:  c.global.TimeRange,
+			Output:     out,
+		}
+		out.Node = fcall
+
+		if call.Name == "top" {
+			fcall.Name = "max"
+		} else {
+			fcall.Name = "min"
+		}
+		fcall.GroupBy = make(map[string]struct{}, len(dimensions))
+		for _, d := range dimensions {
+			c.global.Tags[d.Val] = struct{}{}
+			fcall.GroupBy[d.Val] = struct{}{}
+		}
+		for _, d := range c.global.Dimensions {
+			fcall.GroupBy[d] = struct{}{}
+		}
+
+		out, fcall.Input = AddEdge(nil, fcall)
+	}
 	return c.compileVarRef(ref, out)
 }
 

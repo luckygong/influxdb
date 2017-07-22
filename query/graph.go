@@ -3,7 +3,6 @@ package query
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -194,6 +193,8 @@ type IteratorCreator struct {
 	Expr            influxql.Expr
 	AuxiliaryFields *AuxiliaryFields
 	Measurement     *influxql.Measurement
+	Dimensions      []string
+	Tags            map[string]struct{}
 	TimeRange       TimeRange
 	Output          *WriteEdge
 }
@@ -238,11 +239,13 @@ func (ic *IteratorCreator) Execute(plan *Plan) error {
 	}
 	for _, shardInfo := range shards {
 		sh := &ShardIteratorCreator{
-			Expr:      ic.Expr,
-			TimeRange: ic.TimeRange,
-			Aux:       auxFields,
-			Ref:       ic.Measurement.Name,
-			ShardID:   shardInfo.ID,
+			Expr:       ic.Expr,
+			Dimensions: ic.Dimensions,
+			Tags:       ic.Tags,
+			TimeRange:  ic.TimeRange,
+			Aux:        auxFields,
+			Ref:        ic.Measurement.Name,
+			ShardID:    shardInfo.ID,
 		}
 		sh.Output = merge.AddInput(sh)
 	}
@@ -255,12 +258,14 @@ func (ic *IteratorCreator) Execute(plan *Plan) error {
 var _ Node = &ShardIteratorCreator{}
 
 type ShardIteratorCreator struct {
-	Expr      influxql.Expr
-	TimeRange TimeRange
-	Aux       []influxql.VarRef
-	Ref       string
-	ShardID   uint64
-	Output    *WriteEdge
+	Expr       influxql.Expr
+	Dimensions []string
+	Tags       map[string]struct{}
+	TimeRange  TimeRange
+	Aux        []influxql.VarRef
+	Ref        string
+	ShardID    uint64
+	Output     *WriteEdge
 }
 
 func (sh *ShardIteratorCreator) Description() string {
@@ -278,11 +283,13 @@ func (sh *ShardIteratorCreator) Execute(plan *Plan) error {
 
 	shard := plan.TSDBStore.ShardGroup([]uint64{sh.ShardID})
 	opt := influxql.IteratorOptions{
-		Expr:      sh.Expr,
-		Aux:       sh.Aux,
-		StartTime: sh.TimeRange.Min.UnixNano(),
-		EndTime:   sh.TimeRange.Max.UnixNano(),
-		Ascending: true,
+		Expr:       sh.Expr,
+		Dimensions: sh.Dimensions,
+		GroupBy:    sh.Tags,
+		Aux:        sh.Aux,
+		StartTime:  sh.TimeRange.Min.UnixNano(),
+		EndTime:    sh.TimeRange.Max.UnixNano(),
+		Ascending:  true,
 	}
 	itr, err := shard.CreateIterator(sh.Ref, opt)
 	if err != nil {
@@ -355,7 +362,13 @@ func (m *Merge) Optimize() {
 		// Create a new function call and insert it at the end of every
 		// input to the merge node.
 		for _, input := range m.InputNodes {
-			call := &FunctionCall{Name: node.Name, TimeRange: node.TimeRange}
+			call := &FunctionCall{
+				Name:       node.Name,
+				Dimensions: node.Dimensions,
+				GroupBy:    node.GroupBy,
+				Interval:   node.Interval,
+				TimeRange:  node.TimeRange,
+			}
 			call.Input, call.Output = input.Insert(call)
 		}
 
@@ -372,6 +385,7 @@ type FunctionCall struct {
 	Name       string
 	Arg        influxql.VarRef
 	Dimensions []string
+	GroupBy    map[string]struct{}
 	Interval   influxql.Interval
 	TimeRange  TimeRange
 	Input      *ReadEdge
@@ -404,6 +418,7 @@ func (c *FunctionCall) Execute(plan *Plan) error {
 	opt := influxql.IteratorOptions{
 		Expr:       call,
 		Dimensions: c.Dimensions,
+		GroupBy:    c.GroupBy,
 		Interval:   c.Interval,
 		StartTime:  c.TimeRange.Min.UnixNano(),
 		EndTime:    c.TimeRange.Max.UnixNano(),
@@ -447,18 +462,17 @@ func (d *Distinct) Execute(plan *Plan) error {
 }
 
 type TopBottomSelector struct {
-	Dimensions []influxql.VarRef
+	Name       string
 	Limit      int
+	Dimensions []string
+	Interval   influxql.Interval
+	TimeRange  TimeRange
 	Input      *ReadEdge
 	Output     *WriteEdge
 }
 
 func (s *TopBottomSelector) Description() string {
-	dims := make([]string, len(s.Dimensions))
-	for i, d := range s.Dimensions {
-		dims[i] = d.String()
-	}
-	return fmt.Sprintf("top(%s, %d)", strings.Join(dims, ", "), s.Limit)
+	return fmt.Sprintf("%s(%d)", s.Name, s.Limit)
 }
 
 func (s *TopBottomSelector) Inputs() []*ReadEdge   { return []*ReadEdge{s.Input} }
@@ -469,7 +483,30 @@ func (s *TopBottomSelector) Execute(plan *Plan) error {
 		s.Output.SetIterator(nil)
 		return nil
 	}
-	s.Output.SetIterator(nil)
+
+	input := s.Input.Iterator()
+	if input == nil {
+		s.Output.SetIterator(input)
+		return nil
+	}
+
+	opt := influxql.IteratorOptions{
+		Dimensions: s.Dimensions,
+		Interval:   s.Interval,
+		StartTime:  s.TimeRange.Min.UnixNano(),
+		EndTime:    s.TimeRange.Max.UnixNano(),
+	}
+	var itr influxql.Iterator
+	var err error
+	if s.Name == "top" {
+		itr, err = influxql.NewTopIterator(input, opt, s.Limit, false)
+	} else {
+		itr, err = influxql.NewBottomIterator(input, opt, s.Limit, false)
+	}
+	if err != nil {
+		return err
+	}
+	s.Output.SetIterator(itr)
 	return nil
 }
 

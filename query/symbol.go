@@ -46,6 +46,8 @@ func (s *VarRefSymbol) resolve(m ShardGroup, c *compiledField, out *WriteEdge) {
 		case *influxql.Measurement:
 			ic := &IteratorCreator{
 				Expr:            s.Ref,
+				Dimensions:      c.global.Dimensions,
+				Tags:            c.global.Tags,
 				TimeRange:       c.global.TimeRange,
 				AuxiliaryFields: c.global.AuxiliaryFields,
 				Measurement:     source,
