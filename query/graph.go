@@ -369,11 +369,13 @@ func (m *Merge) Optimize() {
 var _ Node = &FunctionCall{}
 
 type FunctionCall struct {
-	Name      string
-	Arg       influxql.VarRef
-	TimeRange TimeRange
-	Input     *ReadEdge
-	Output    *WriteEdge
+	Name       string
+	Arg        influxql.VarRef
+	Dimensions []string
+	Interval   influxql.Interval
+	TimeRange  TimeRange
+	Input      *ReadEdge
+	Output     *WriteEdge
 }
 
 func (c *FunctionCall) Description() string {
@@ -400,9 +402,11 @@ func (c *FunctionCall) Execute(plan *Plan) error {
 		Args: []influxql.Expr{&c.Arg},
 	}
 	opt := influxql.IteratorOptions{
-		Expr:      call,
-		StartTime: influxql.MinTime,
-		EndTime:   influxql.MaxTime,
+		Expr:       call,
+		Dimensions: c.Dimensions,
+		Interval:   c.Interval,
+		StartTime:  c.TimeRange.Min.UnixNano(),
+		EndTime:    c.TimeRange.Max.UnixNano(),
 	}
 	itr, err := influxql.NewCallIterator(input, opt)
 	if err != nil {

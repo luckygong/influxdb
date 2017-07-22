@@ -178,7 +178,13 @@ func (c *compiledField) compileFunction(expr *influxql.Call, out *WriteEdge) err
 	}
 
 	// Create the function call and send its output to the write edge.
-	call := &FunctionCall{Name: expr.Name, Output: out, TimeRange: c.global.TimeRange}
+	call := &FunctionCall{
+		Name:       expr.Name,
+		Dimensions: c.global.Dimensions,
+		Interval:   c.global.Interval,
+		TimeRange:  c.global.TimeRange,
+		Output:     out,
+	}
 	c.global.FunctionCalls = append(c.global.FunctionCalls, out.Output)
 	out.Node = call
 	out, call.Input = AddEdge(nil, call)
